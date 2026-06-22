@@ -231,11 +231,17 @@ service vndservicemanager /vendor/bin/vndservicemanager /dev/vndbinder
     user system
     group system readproc
     task_profiles ServiceCapacityLow
-    onrestart class_restart main
-    onrestart class_restart hal
-    onrestart class_restart early_hal
     shutdown critical
 RC
+# NOTE (eos): vndservicemanager is a *vendor* process; its vendor linker
+# namespace can't load /system/lib/libselinux_stubs.so (Treble isolation), so
+# the stub preload silently fails and it aborts on the missing selinuxfs
+# (AppArmor kernel). On aurora the system service managers cover the display
+# path (composer/allocator live in hwservicemanager); the only damage from
+# vndservicemanager dying was its `onrestart class_restart {main,hal,early_hal}`
+# cascade crash-looping the display HALs. vndservicemanager is NOT `critical`,
+# so dropping those cascade lines lets it fail harmlessly without taking the
+# HALs (and thus the compositor) down. See fix-selinux-vndservicemanager.md.
 
 stub_sm_rc "$ROOTFS/system/etc/init/hwservicemanager.rc" <<'RC'
 service hwservicemanager /system/bin/hwservicemanager

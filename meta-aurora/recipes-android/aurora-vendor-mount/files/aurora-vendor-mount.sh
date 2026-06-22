@@ -4,8 +4,9 @@
 # LXC container can bind them into its rootfs.
 #
 # Tables observed from a running UBPorts install on this hardware (sudo dmsetup
-# table). Hardcoded for slot B; re-derive if Google reflashes the watch's super
-# layout.
+# table). Hardcoded for eos SLOT A (data lives in slot A's logical partitions on a
+# fresh factory flash; slot B is empty). Extents read from super LP metadata.
+# TODO: derive from LP metadata at runtime to support both slots/variants.
 #
 #   system_b: multi-segment (4 fragments, total ~3.5 GB ext4)
 #   vendor_b: single segment (~234 MB ext4)
@@ -32,17 +33,13 @@ dm_create_if_missing() {
 }
 
 # vendor_b -- single segment
-dm_create_if_missing vendor_b "0 467320 linear $SUPER 4898792"
+dm_create_if_missing vendor_b "0 567184 linear $SUPER 5332760"
 
 # vendor_dlkm_b -- single segment
-dm_create_if_missing vendor_dlkm_b "0 123952 linear $SUPER 5366112"
+dm_create_if_missing vendor_dlkm_b "0 123952 linear $SUPER 5899944"
 
 # system_b -- 4 fragments. dmsetup reads multi-line tables from stdin.
-dm_create_if_missing system_b "\
-0 3075904 linear $SUPER 1562192
-3075904 1560144 linear $SUPER 2048
-4636048 260016 linear $SUPER 4638776
-4896064 2135184 linear $SUPER 5490064"
+dm_create_if_missing system_b "0 3418648 linear $SUPER 1593488"
 
 mount_if_unmounted() {
     src=$1; dst=$2
@@ -60,7 +57,7 @@ mount_if_unmounted /dev/mapper/vendor_b       /android/vendor
 mount_if_unmounted /dev/mapper/vendor_dlkm_b  /android/vendor_dlkm
 
 # system_dlkm_b -- mounted at /system_dlkm in the container. Single segment.
-dm_create_if_missing system_dlkm_b "0 680 linear $SUPER 4638096"
+dm_create_if_missing system_dlkm_b "0 680 linear $SUPER 5012136"
 
 # Compatibility symlinks: /vendor and /system are where Halium / libhybris
 # expect to find Android system/vendor libs and HAL .so's. Without these, every
