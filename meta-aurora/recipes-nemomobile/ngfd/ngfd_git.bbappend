@@ -54,4 +54,16 @@ do_install:append:aurora() {
             echo 'haptic.duration = 1000' >> "$f"
         fi
     done
+
+    # TEMPORARY local carry, pending upstream meta-asteroid merge of the
+    # ngfd "notification" event. asteroid-launcher now plays its
+    # notification + un-mute sounds through ngf instead of a QtMultimedia
+    # SoundEffect (which held a PulseAudio stream open for its whole
+    # lifetime and kept the audio rail from suspending -- a standby
+    # battery drain). Sound-only: notification haptics already come from
+    # notif_normal/notif_strong. Delete once meta-asteroid ships it.
+    f=${D}/usr/share/ngfd/events.d/notification.ini
+    if [ ! -f "$f" ]; then
+        printf '[notification]\nsound.filename = /usr/share/sounds/notification.wav\nsound.stream.media.role = notification\n' > "$f"
+    fi
 }
