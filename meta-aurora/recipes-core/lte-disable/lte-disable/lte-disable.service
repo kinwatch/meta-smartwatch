@@ -1,0 +1,12 @@
+[Unit]
+Description=Power down the LTE modem (mss remoteproc) - no EOS telephony stack yet
+After=aurora-lxc-android.service
+ConditionPathExists=/sys/class/remoteproc
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/lte-disable
+RemainAfterExit=yes
+
+[Install]
+WantedBy=basic.target

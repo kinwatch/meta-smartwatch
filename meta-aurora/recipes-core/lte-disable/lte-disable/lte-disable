@@ -1,0 +1,59 @@
+#!/bin/sh
+
+# Keep the LTE modem (mss remoteproc) powered down.
+#
+# The Pixel Watch 2 LTE modem is auto-booted by the kernel (q6v5-mss), but EOS
+# currently ships no telephony stack (no ofono, no connman cellular) to manage
+# it. Left unmanaged the modem floods its glink channel (~540 IRQ/s), which
+# pins the single online CPU at ~100% sys so the SoC never idles or suspends --
+# a constant ~47%/hour battery drain (measured 2026-06-22). Until an EOS build
+# manages LTE, keep the modem off.
+#
+# Re-enable for LTE work: `systemctl mask lte-disable.service` (or drop
+# lte-disable from IMAGE_INSTALL) and reboot.
+
+find_mss() {
+    for rp in /sys/class/remoteproc/*; do
+        [ -r "$rp/name" ] || continue
+        case "$(cat "$rp/name" 2>/dev/null)" in
+            *remoteproc-mss|*-mss) echo "$rp"; return 0 ;;
+        esac
+    done
+    return 1
+}
+
+# The mss remoteproc can register slightly after boot (kernel module autoload),
+# so wait briefly for it to appear before acting.
+rp=""
+i=0
+while [ "$i" -lt 30 ]; do
+    rp=$(find_mss) && break
+    i=$((i + 1))
+    sleep 1
+done
+
+if [ -z "$rp" ]; then
+    echo "lte-disable: no mss remoteproc found, nothing to do"
+    exit 0
+fi
+
+name=$(cat "$rp/name" 2>/dev/null)
+
+# Disable subsystem auto-recovery first so SSR can't re-boot it after a stop.
+echo disabled > "$rp/recovery" 2>/dev/null \
+    && echo "lte-disable: $name recovery disabled"
+
+state=$(cat "$rp/state" 2>/dev/null)
+case "$state" in
+    running|attached)
+        if echo stop > "$rp/state" 2>/dev/null; then
+            echo "lte-disable: $name stopped (was $state)"
+        else
+            echo "lte-disable: WARNING could not stop $name" >&2
+        fi
+        ;;
+    *)
+        echo "lte-disable: $name already '$state', leaving as-is"
+        ;;
+esac
+exit 0
