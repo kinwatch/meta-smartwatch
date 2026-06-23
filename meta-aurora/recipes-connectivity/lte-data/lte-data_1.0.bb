@@ -1,12 +1,11 @@
-DESCRIPTION = "Bring up and maintain the LTE data connection from ofono's \
-ConnectionContext settings. connman does not manage the cellular service on this \
-port, and the rmnet data interface is rawip (IPv4 default route must be 'onlink'); \
-the data call also lands on a varying rmnet_dataN mux that must be read live from \
-ofono. This service applies Interface + IPv4 (addr + onlink route) + IPv6 + DNS \
-and keeps the internet context active. Validated on-device: dual-stack, 0% loss \
-over 5 min. Only meaningful with LTE enabled (ofono); inert if lte-disable holds \
-the modem off."
-PR = "r0"
+DESCRIPTION = "Online the LTE modem at boot so connman can manage cellular data. \
+connman's ofono plugin owns the data path (creates the cellular service, activates \
+the context, configures IPv4/IPv6/DNS/route, arbitrates with WiFi, shows in the \
+UI) once the modem is online+registered -- but it does not online the modem \
+itself. This oneshot sets the modem Online (toggling to force acquisition); \
+connman does the rest. Validated on-device: dual-stack, 0% loss, DNS. Only \
+meaningful with LTE enabled (ofono); inert if lte-disable holds the modem off."
+PR = "r1"
 SRC_URI = "file://lte-data.service \
            file://lte-data-up"
 LICENSE = "GPL-3.0-only"
@@ -15,7 +14,7 @@ S = "${WORKDIR}/sources"
 UNPACKDIR = "${S}"
 PACKAGE_ARCH = "${MACHINE_ARCH}"
 COMPATIBLE_MACHINE = "aurora"
-RDEPENDS:${PN} = "ofono iproute2"
+RDEPENDS:${PN} = "ofono"
 
 do_install() {
     install -m 0755 -d ${D}${bindir}
