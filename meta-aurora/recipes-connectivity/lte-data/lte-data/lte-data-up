@@ -1,0 +1,93 @@
+#!/bin/sh
+# lte-data-up: bring up and maintain the LTE data connection from ofono's
+# ConnectionContext settings.
+#
+# Why this exists (found 2026-06-23, on-device):
+#  - connman does NOT manage the cellular service on this port (the ofono-cellular
+#    integration isn't wiring it up), so nothing applies ofono's context IP
+#    settings to the rmnet interface automatically.
+#  - The rmnet data interface is rawip (ARPHRD_RAWIP, no ARP), so the IPv4 default
+#    route MUST be added "onlink" (the gateway can't be resolved at L2).
+#  - The data call lands on a DIFFERENT rmnet_dataN mux each time; the correct
+#    interface name must be read live from ofono's Settings, never hardcoded.
+#
+# This polls ofono, onlines the modem, activates the internet context, and applies
+# Interface + IPv4 (addr + onlink default route) + IPv6 + DNS, re-applying/
+# reactivating as needed. (connman cellular integration would be the cleaner
+# long-term replacement.)
+
+OB="gdbus call --system -d org.ofono"
+MODEM=/ril_0
+CTX=/ril_0/context1
+log() { echo "lte-data-up: $*"; }
+
+mask2prefix() {
+    case "$1" in
+        255.255.255.252) echo 30 ;; 255.255.255.248) echo 29 ;;
+        255.255.255.240) echo 28 ;; 255.255.255.224) echo 27 ;;
+        255.255.255.192) echo 26 ;; 255.255.255.128) echo 25 ;;
+        255.255.255.0)   echo 24 ;; *) echo 30 ;;
+    esac
+}
+
+# Wait for ofono + the modem object, then online the radio.
+systemctl is-active ofono >/dev/null 2>&1 || systemctl start ofono
+for _ in $(seq 1 30); do
+    $OB -o $MODEM -m org.ofono.Modem.GetProperties >/dev/null 2>&1 && break
+    sleep 2
+done
+# A fresh-booted modem often stays "unregistered" until the radio is toggled;
+# an explicit off->on forces a clean acquisition.
+$OB -o $MODEM -m org.ofono.Modem.SetProperty Online "<false>" >/dev/null 2>&1
+sleep 4
+$OB -o $MODEM -m org.ofono.Modem.SetProperty Online "<true>" >/dev/null 2>&1
+
+log "waiting for packet attach"
+for _ in $(seq 1 60); do
+    case "$($OB -o $MODEM -m org.ofono.ConnectionManager.GetProperties 2>/dev/null)" in
+        *"'Attached': <true>"*) log "attached"; break ;;
+    esac
+    sleep 2
+done
+$OB -o $CTX -m org.ofono.ConnectionContext.SetProperty Active "<true>" >/dev/null 2>&1
+
+# Maintain loop: keep the context active and the interface configured.
+while true; do
+    S=$($OB -o $CTX -m org.ofono.ConnectionContext.GetProperties 2>/dev/null)
+    if ! echo "$S" | grep -q "'Active': <true>"; then
+        log "context inactive -> reactivating"
+        $OB -o $MODEM -m org.ofono.Modem.SetProperty Online "<true>" >/dev/null 2>&1
+        $OB -o $CTX -m org.ofono.ConnectionContext.SetProperty Active "<true>" >/dev/null 2>&1
+        sleep 5
+        continue
+    fi
+
+    IF=$(echo "$S" | sed -nE "s/.*'Settings': <\{'Interface': <'([^']*)'>.*/\1/p")
+    IP4=$(echo "$S" | grep -oE "'Address': <'[0-9.]+'>" | head -1 | grep -oE "[0-9.]+")
+    NM=$(echo "$S"  | grep -oE "'Netmask': <'[0-9.]+'>" | head -1 | grep -oE "[0-9.]+")
+    GW4=$(echo "$S" | grep -oE "'Gateway': <'[0-9.]+'>" | head -1 | grep -oE "[0-9.]+")
+    IP6=$(echo "$S" | grep -oE "'Address': <'[0-9a-fA-F:]{6,}'>" | head -1 | grep -oE "[0-9a-fA-F:]{6,}")
+    DNS=$(echo "$S" | grep -oE "'DomainNameServers': <\[[^]]*\]" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
+
+    if [ -n "$IF" ] && [ -n "$IP4" ]; then
+        P=$(mask2prefix "$NM")
+        ip link set "$IF" up 2>/dev/null
+        ip addr show "$IF" 2>/dev/null | grep -q "$IP4/" || ip addr add "$IP4/$P" dev "$IF" 2>/dev/null
+        if ! ip route get 8.8.8.8 2>/dev/null | grep -q "dev $IF"; then
+            if [ -n "$GW4" ]; then
+                ip route replace default via "$GW4" dev "$IF" onlink 2>/dev/null
+            else
+                ip route replace default dev "$IF" 2>/dev/null
+            fi
+        fi
+        if [ -n "$IP6" ]; then
+            ip -6 addr show "$IF" 2>/dev/null | grep -q "$IP6" || ip -6 addr add "$IP6/64" dev "$IF" 2>/dev/null
+        fi
+        if [ -n "$DNS" ]; then
+            tmp=/run/lte-data-resolv.conf; : >"$tmp"
+            for d in $DNS; do echo "nameserver $d" >>"$tmp"; done
+            cp "$tmp" /etc/resolv.conf 2>/dev/null
+        fi
+    fi
+    sleep 15
+done

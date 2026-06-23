@@ -1,0 +1,14 @@
+[Unit]
+Description=Bring up and maintain LTE data from ofono context (aurora)
+After=aurora-lxc-android.service ofono.service
+Wants=ofono.service
+ConditionPathExists=/dev/binder
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/lte-data-up
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=basic.target
