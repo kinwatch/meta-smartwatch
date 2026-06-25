@@ -100,6 +100,17 @@ CONFIG_FB=y
 CONFIG_FB_QCOM_CONT_SPLASH=y
 # CONFIG_DRM_FBDEV_EMULATION is not set
 
+# Opportunistic suspend (deep sleep). monaco_GKI inherits CONFIG_PM_AUTOSLEEP
+# unset from the google-eos GKI merge, so although CONFIG_SUSPEND/PM_SLEEP/
+# PM_WAKELOCKS are all =y and `echo mem` works, nothing ever *triggers* suspend:
+# mce drops its wakelocks on idle but the SoC stays awake (~17%/hr standby).
+# Other AsteroidOS ports (beluga, bass) ship PM_AUTOSLEEP=y. Validated on-device
+# 2026-06-24: a userspace autosleep emulation reached 99% sleep duty over ~2h
+# (only 18 aborts; BT/modem wakeup blips don't defeat tight retry). This restores
+# the platform's intended model — mce manages wakelocks, the kernel autosleeps
+# when they release. (PM_WAKELOCKS/PM_SLEEP already =y from the GKI merge.)
+CONFIG_PM_AUTOSLEEP=y
+
 # Virtual HCI device — backs /dev/vhci, which bluebinder writes HCI
 # packets to so the kernel BlueZ stack sees them as if they came from a
 # real controller. The QCA BT chip on this watch is owned by the Android

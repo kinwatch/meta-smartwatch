@@ -1,0 +1,21 @@
+[Unit]
+Description=Select qcom_lpm as active cpuidle governor (enables RPM VDD_MIN deep-sleep)
+# See eos-investigation/project-24-hr-battery.md for the investigation behind this.
+# qcom_lpm is loaded by systemd-modules-load (aurora-post-rootfs.conf); it must be
+# made the ACTIVE governor or the stock menu/teo governor never reaches VDD_MIN.
+# Kernel cmdline cpuidle.governor= can't be used: the governor is a post-rootfs
+# module, registered after early cpuidle init.
+After=systemd-modules-load.service
+Requires=systemd-modules-load.service
+ConditionPathExists=/sys/devices/system/cpu/cpuidle/current_governor
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Use the hyphenated governor name the module registers ("qcom-cpu-lpm").
+ExecStart=/bin/sh -c 'echo qcom-cpu-lpm > /sys/devices/system/cpu/cpuidle/current_governor'
+# Verify it actually took; fail loudly if not (so a broken boot is visible).
+ExecStartPost=/bin/sh -c 'g=$(cat /sys/devices/system/cpu/cpuidle/current_governor); [ "$g" = "qcom-cpu-lpm" ] || { echo "cpuidle governor is $g, expected qcom-cpu-lpm" >&2; exit 1; }'
+
+[Install]
+WantedBy=multi-user.target
