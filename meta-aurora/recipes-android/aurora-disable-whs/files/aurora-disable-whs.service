@@ -1,0 +1,14 @@
+[Unit]
+Description=Disable Qualcomm Wearable Health Services HAL (continuous on-wrist HR/PPG drain)
+# See eos-investigation/project-24-hr-battery.md. The container's android init starts
+# the WHS HAL with class hal; we stop it once its HALs are up.
+After=aurora-lxc-android.service
+Requires=aurora-lxc-android.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/aurora-disable-whs.sh
+
+[Install]
+WantedBy=multi-user.target
