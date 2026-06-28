@@ -21,16 +21,14 @@ inherit pkgconfig
 EXTRA_OEMAKE = "KEEP_SYMBOLS=1 CC='${CC}' LD='${CC}'"
 PARALLEL_MAKE = ""
 
-# install target drops the plugin .so into `pkg-config ofono --variable=plugindir`
-# and builds/installs libofonobinderpluginext.
+# The top-level `install` drops the plugin .so into
+# `pkg-config ofono --variable=plugindir`. libofonobinderpluginext (which the
+# plugin links against at runtime) has its own install target under lib/ - the
+# same one upstream's rpm/deb packaging uses - so call that instead of
+# hand-copying a hardcoded version (the .so version bumps with upstream).
 do_install() {
     oe_runmake install DESTDIR=${D}
-    # The Makefile's `install` ships only the plugin .so; libofonobinderpluginext
-    # (which the plugin links against) is installed by Sailfish's debian packaging,
-    # which we don't use. Install the release ext lib + soname symlink manually.
-    install -d ${D}${libdir}
-    install -m 0755 ${S}/lib/build/release/libofonobinderpluginext.so.1.1.27 ${D}${libdir}/
-    ln -sf libofonobinderpluginext.so.1.1.27 ${D}${libdir}/libofonobinderpluginext.so.1
+    oe_runmake -C lib install LIBDIR=${libdir} DESTDIR=${D}
     install -d ${D}${sysconfdir}/ofono
     install -m 0644 ${UNPACKDIR}/binder.conf ${D}${sysconfdir}/ofono/binder.conf
 }
