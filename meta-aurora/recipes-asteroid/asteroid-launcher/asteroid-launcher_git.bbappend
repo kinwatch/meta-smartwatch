@@ -1,17 +1,16 @@
 # TEMPORARY local carry of the battery fix, pending upstream merge.
 #
-# Routes asteroid-launcher's notification + un-mute sounds through ngf
-# instead of a QtMultimedia SoundEffect, which held a PulseAudio stream
-# open for its whole lifetime and kept the audio rail from suspending (a
-# standby battery drain). See the matching meta-asteroid ngfd
-# "notification" event.
+# Plays asteroid-launcher's notification + un-mute sounds on a short-lived
+# SoundEffect that is destroyed when playback ends, instead of one that lives
+# for the whole launcher session. A session-lifetime SoundEffect holds its
+# PulseAudio stream open forever, so the audio sink never suspends and the
+# audio rail stays awake (a standby battery drain).
 #
-# Once these land upstream:
-#   - asteroid-launcher: "Play UI sounds through ngf instead of
-#     QtMultimedia SoundEffect"
-#   - meta-asteroid: ngfd "notification" event
+# Once this lands upstream:
+#   - asteroid-launcher: "Release the notification sound's audio stream when idle"
+#     (https://github.com/AsteroidOS/asteroid-launcher/pull/271)
 # delete this bbappend and the patch under files/.
 
 FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 
-SRC_URI += "file://0001-launcher-soundeffect-to-ngf.patch"
+SRC_URI += "file://0001-launcher-oneshot-sound.patch"
