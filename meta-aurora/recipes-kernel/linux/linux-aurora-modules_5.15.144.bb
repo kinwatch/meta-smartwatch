@@ -85,10 +85,12 @@ SRCREV_bms         = "51583026f264e7597808a16aa6809fb9279eb8c4"
 # uses #ifdef gates on these names).
 SRCREV_nanohub     = "58eca049cf800fee3f741fa34397f40dac7cb35d"
 # rotary-encoders ships petc_input_filter (input event filter that hooks into
-# nanohub via nanohub_register_listener) + ots_pat9126 (optical touch sensor);
-# we build petc_input_filter so the MCU's input-channel messages have a
-# kernel-side consumer -- without it the MCU may sit in pre-handshake state and
-# mcu_mgmtd retries the firmware-download cycle.
+# nanohub via nanohub_register_listener) + ots_pat9126 (the PixArt optical
+# sensor behind the crown). petc_input_filter gives the MCU's input-channel
+# messages a kernel-side consumer -- without it the MCU may sit in
+# pre-handshake state and mcu_mgmtd retries the firmware-download cycle.
+# ots_pat9126 registers the input device that reports crown rotation as
+# REL_WHEEL (DT node pixart_pat9126@75 on i2c-0).
 SRCREV_rotary      = "73dc43decfde15cf3fd1623b39a5f8f4dfec4fc9"
 # sound/mcu_mic_codec is the ASoC codec that consumes nanohub's audio channel.
 # Same role as petc_input_filter on a different nanohub_io channel.
@@ -139,6 +141,7 @@ EXT_MODULES = "\
   private/google-modules/soc/msm/wlan_mac \
   private/google-modules/nanohub \
   private/google-modules/rotary-encoders/petc_input_filter \
+  private/google-modules/rotary-encoders/ots_pat9126 \
   private/google-modules/sound/mcu_mic_codec \
   private/google-modules/amplifiers/cs40l26 \
 "
@@ -324,6 +327,9 @@ modroot() {
       # nanohub's Module.symvers since nanohub is earlier in EXT_MODULES).
       private/google-modules/rotary-encoders/petc_input_filter)
         echo "CONFIG_INPUT_PETC_INPUT_FILTER=m EXTRA_CFLAGS=-I${S}/private/google-modules/nanohub" ;;
+      # ots_pat9126: standalone i2c driver; config var from its wrapper Makefile.
+      private/google-modules/rotary-encoders/ots_pat9126)
+        echo "CONFIG_INPUT_PIXART_OTS_PAT9126_SWITCH=m" ;;
       # mcu_mic_codec uses nanohub.h headers via $(KERNEL_SRC)/../google-modules/nanohub.
       private/google-modules/sound/mcu_mic_codec)
         echo "CONFIG_SND_SOC_MCU_MIC_CODEC=m EXTRA_CFLAGS=-I${S}/private/google-modules/nanohub" ;;
