@@ -1,0 +1,13 @@
+[Unit]
+Description=eos Phase-1 boot-verification beacon (BCB->fastboot if cmdline has eos-beacon)
+After=multi-user.target
+Requires=local-fs.target
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/eos-boot-beacon.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
