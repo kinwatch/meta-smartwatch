@@ -1,0 +1,74 @@
+sim-card: send enableUiccApplications(true) on SIM init
+
+The per-SIM "UICC applications enabled" preference is persisted in the
+modem (IRadioSim, mandatory since IRadio 1.5). Full Android reconciles it
+to true at every boot; ofono-binder-plugin never sends it. A card whose
+persisted flag is left disabled (e.g. by prior vendor tooling) registers
+briefly, then the modem deactivates the SIM application. Assert
+enableUiccApplications(true) once per card session so the card stays up.
+
+Upstream-Status: Pending
+
+diff --git a/src/binder_sim_card.c b/src/binder_sim_card.c
+index 6123615..ae5f941 100644
+--- a/src/binder_sim_card.c
++++ b/src/binder_sim_card.c
+@@ -62,6 +62,7 @@ typedef struct binder_sim_card_object {
+     RadioRequestGroup* g;
+     RADIO_AIDL_INTERFACE interface_aidl;
+     guint sub_start_timer;
++    gboolean uicc_apps_enabled_sent; /* enableUiccApplications(true) sent this session */
+     gulong event_id[EVENT_COUNT];
+     guint sim_io_idle_id;
+     guint sim_io_idle_count;
+@@ -335,6 +336,31 @@ binder_sim_card_select_app(
+     return selected_app;
+ }
+ 
++static
++void
++binder_sim_card_enable_uicc_apps(
++    BinderSimCardObject* self)
++{
++    /*
++     * enableUiccApplications(true): a per-SIM, modem-persistent preference
++     * (IRadioSim, mandatory since IRadio 1.5). Full Android reconciles it to
++     * `true` at every boot; ofono never sends it. If a card's persisted flag is
++     * left disabled (e.g. by prior tooling), the modem registers briefly then
++     * deactivates the SIM application. Assert it once per card session.
++     */
++    GBinderWriter args;
++    guint32 code = self->interface_aidl == RADIO_SIM_INTERFACE ?
++        RADIO_SIM_REQ_ENABLE_UICC_APPLICATIONS :
++        RADIO_REQ_ENABLE_UICC_APPLICATIONS;
++    RadioRequest* req = radio_request_new2(self->g, code, &args,
++        NULL, NULL, NULL);
++
++    DBG("%u enable=1", self->card.slot);
++    gbinder_writer_append_bool(&args, TRUE);
++    radio_request_submit(req);
++    radio_request_unref(req);
++}
++
+ static
+ void
+ binder_sim_card_update_app(
+@@ -346,6 +372,10 @@ binder_sim_card_update_app(
+     int app_index;
+ 
+     if (status->card_state == RADIO_CARD_STATE_PRESENT) {
++        if (!self->uicc_apps_enabled_sent) {
++            self->uicc_apps_enabled_sent = TRUE;
++            binder_sim_card_enable_uicc_apps(self);
++        }
+         if (status->gsm_umts_index >= 0 &&
+             status->gsm_umts_index < status->num_apps) {
+             app_index = status->gsm_umts_index;
+@@ -358,6 +388,7 @@ binder_sim_card_update_app(
+         }
+     } else {
+         app_index = -1;
++        self->uicc_apps_enabled_sent = FALSE;
+         binder_sim_card_subscription_done(self);
+     }
+ 
