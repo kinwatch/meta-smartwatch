@@ -154,6 +154,18 @@ do_compile() {
     "${FDTPUT}" -t s ${WORKDIR}/dtb-ramoops.dtb "$S_NODE" format "x8r8g8b8"
     bbnote "cont-splash-fb node injected into base DTB"
 
+    # ─── Step 3c: eSIM VDDIO keep-alive load. The eSIM lives in the NXP SN220,
+    #     whose VDDIO rail (pm5100_l20) is shared with the crown sensor. Stock's
+    #     NFC driver (not shipped here) votes a permanent 20 mA load at probe,
+    #     pinning the LDO in HPM. Without that vote the crown sensor's panel-off
+    #     sleep-load (0.35 mA) leaves the rail under its 10 mA hpm-min-load, the
+    #     LDO drops to LPM, and an active-RF eSIM browns out (modem sees the
+    #     card removed). regulator-system-load reproduces the missing vote in
+    #     the regulator core's load aggregation. ───
+    L20_NODE=/soc/qcom,rpm-smd/rpm-regulator-ldoa20/regulator-l20
+    "${FDTPUT}" -t u ${WORKDIR}/dtb-ramoops.dtb "$L20_NODE" regulator-system-load 20000
+    bbnote "regulator-system-load=20000 set on pm5100_l20 (SN220 eSIM VDDIO)"
+
     # ─── Step 4: cpio + lz4 the vkb ramdisk ───
     ( cd ${WORKDIR}/vkb_ramdisk && find . | sort | \
         cpio -o -H newc --owner root:root 2>/dev/null ) > ${WORKDIR}/vkb_rd.cpio
