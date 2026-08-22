@@ -6,7 +6,14 @@
 # rootfs ext4 -- journald silently drops this service's output for reasons
 # we haven't pinned down, and a file in the rootfs's persistent ext4 gives
 # a guaranteed channel pullable from the ramdisk via /loop/...
-exec >/var/log/aurora-lxc-android.log 2>&1
+#
+# Append, don't truncate: a boot that fails before this script finishes is
+# exactly the boot we need the log from, and reading it back requires
+# another successful boot -- which would otherwise overwrite it first.
+# Cap growth so a run of failures doesn't grow this unboundedly.
+LOGFILE=/var/log/aurora-lxc-android.log
+[ "$(wc -c <"$LOGFILE" 2>/dev/null || echo 0)" -gt 262144 ] && : >"$LOGFILE"
+exec >>"$LOGFILE" 2>&1
 
 echo "aurora-lxc-android: =================== boot start ==================="
 date 2>&1 || true
@@ -172,6 +179,32 @@ if [ -f "$PIXELSTATS_RC" ] && ! mountpoint -q "$PIXELSTATS_RC"; then
     fi
 fi
 
+# Drop init.sdw5100.usb.rc's own `on charger` action (confirmed root cause,
+# via a persistent kernel-log capture across a run that landed in the
+# mass-storage-only USB gadget). It directly `setprop sys.usb.config
+# mass_storage` + `setprop sys.usb.configfs 1` -- the exact pair that fires
+# this same file's `on property:sys.usb.config=mass_storage &&
+# property:sys.usb.configfs=1` action further down, which symlinks
+# mass_storage.0 into configs/b.1 and activates it. This is a SEPARATE
+# `on charger` trigger from the one already masked in init.qcom.rc above;
+# masking only that one left this one still live, which is why the earlier
+# fix attempt didn't hold. Whether `charger` fires depends on a
+# bootloader/PMIC boot-mode classification outside our control, same as
+# the init.qcom.rc case, and we never want mass-storage regardless of why
+# it fired. The rest of this file (post-fs-data's g1/g2 skeleton, string
+# setup, the plain `adb` composition trigger, etc.) is left alone -- an
+# earlier attempt at masking the whole file made boot LESS reliable, most
+# likely because something downstream actually depends on that setup.
+SDW_USB_RC="$VENDOR_INIT/hw/init.sdw5100.usb.rc"
+if [ -f "$SDW_USB_RC" ] && ! mountpoint -q "$SDW_USB_RC"; then
+    SDW_USB_RC_OVERLAY=/run/aurora-init.sdw5100.usb.rc
+    sed '/^on charger\r*$/,/^\r*$/d' "$SDW_USB_RC" > "$SDW_USB_RC_OVERLAY"
+    chmod 0644 "$SDW_USB_RC_OVERLAY"
+    if mount --bind "$SDW_USB_RC_OVERLAY" "$SDW_USB_RC"; then
+        echo "aurora-lxc-android: masked charger-trigger mass_storage setprop in init.sdw5100.usb.rc"
+    fi
+fi
+
 # Drop the CDSP and CVP remoteproc boot writes from init.qti.kernel.rc's
 # early-boot action. The Compute-DSP (camera ML / NN / FastRPC compute offload)
 # and CVP (Computer Vision Processor: camera EIS / motion / detection) only
@@ -190,6 +223,27 @@ if [ -f "$QTI_KERNEL_RC" ] && ! mountpoint -q "$QTI_KERNEL_RC"; then
     chmod 0644 "$QTI_KERNEL_RC_OVERLAY"
     if mount --bind "$QTI_KERNEL_RC_OVERLAY" "$QTI_KERNEL_RC"; then
         echo "aurora-lxc-android: masked CDSP/CVP boot writes in init.qti.kernel.rc"
+    fi
+fi
+
+# Drop the `on charger: setprop persist.sys.usb.config mass_storage` action
+# from init.qcom.rc. Confirmed root cause of the intermittent mass-storage
+# USB gadget (functions/mass_storage.0, no adb): init.sdw5100.usb.rc reacts
+# to persist.sys.usb.config=mass_storage by mkdir-ing mass_storage.0 into g1
+# unconditionally, and this is the only thing in this port's boot that ever
+# sets that property to mass_storage. Whether `charger` fires depends on a
+# bootloader/PMIC boot-mode classification we don't control and that differs
+# between a post-flash boot and a bare reboot with USB already attached --
+# but we never want mass-storage regardless of why the trigger fired, only
+# ever adb. Leave `start qcom-post-boot` on the same trigger untouched.
+QCOM_RC="$VENDOR_INIT/hw/init.qcom.rc"
+if [ -f "$QCOM_RC" ] && ! mountpoint -q "$QCOM_RC"; then
+    QCOM_RC_OVERLAY=/run/aurora-init.qcom.rc
+    sed '/^[[:space:]]*setprop persist\.sys\.usb\.config mass_storage[[:space:]]*$/d' \
+        "$QCOM_RC" > "$QCOM_RC_OVERLAY"
+    chmod 0644 "$QCOM_RC_OVERLAY"
+    if mount --bind "$QCOM_RC_OVERLAY" "$QCOM_RC"; then
+        echo "aurora-lxc-android: masked charger-trigger mass_storage setprop in init.qcom.rc"
     fi
 fi
 
