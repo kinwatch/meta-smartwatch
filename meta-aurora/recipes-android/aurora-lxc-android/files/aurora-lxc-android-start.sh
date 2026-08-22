@@ -84,8 +84,17 @@ if [ -f /android/vendor/build.prop ]; then
     # Ensure the override added it even if the stock line is absent.
     grep -q '^vendor\.gralloc\.disable_ubwc=' "$VBP_OVERLAY" \
         || echo 'vendor.gralloc.disable_ubwc=1' >> "$VBP_OVERLAY"
+    # Mark the modem EFS clear as already-done so rmt_storage does NOT wipe
+    # modemst1/2 and reload the fsg golden on every boot. Our container has no
+    # durable persist-property store, so the flag rmt_storage sets after its
+    # one-time factory clear is lost each reboot -- it then re-clears forever,
+    # discarding all runtime modem config (e.g. me_hotswap / MCFG selection).
+    # Setting it here (a prop file init imports before class-core rmt_storage)
+    # makes modem EFS persist across boots, matching stock WearOS behaviour.
+    grep -q '^persist\.vendor\.modem\.efs\.clean=' "$VBP_OVERLAY" \
+        || echo 'persist.vendor.modem.efs.clean=done' >> "$VBP_OVERLAY"
     chmod 0644 "$VBP_OVERLAY"
-    echo "aurora-lxc-android: prepared vendor/build.prop overlay (disable_ubwc=1)"
+    echo "aurora-lxc-android: prepared vendor/build.prop overlay (disable_ubwc=1, efs.clean=done)"
 fi
 
 for src in /android/vendor /android/vendor_dlkm; do
