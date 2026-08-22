@@ -63,6 +63,13 @@ FILESEXTRAPATHS:prepend:aurora := "${THISDIR}/usb-moded:"
 #    appsync. Auto-start at basic.target races our adbd-prepare with
 #    usb-moded's configfs_set_function and ends up with adbd holding the
 #    abstract socket "local:5037" without a valid /dev/usb-ffs/adb/ep0.
+#
+# 9. 99-aurora-init-gfs-order.conf: usb-moded.service has
+#    DefaultDependencies=no and is only ordered after local-fs.target, same as
+#    init_gfs.service -- nothing stops systemd starting them concurrently, so
+#    usb_moded's configfs_init() can run before g1 exists (configfs_probe()
+#    bails out per point 1 above). An explicit After=/Wants= on
+#    init_gfs.service removes that startup race at its source.
 SRC_URI:append:aurora = " file://init_gfs \
                           file://init_gfs.service \
                           file://aurora-defaults.ini \
@@ -70,6 +77,7 @@ SRC_URI:append:aurora = " file://init_gfs \
                           file://run/adb-startserver.ini \
                           file://adbd-prepare.service \
                           file://10-aurora-android-tools.preset \
+                          file://99-aurora-init-gfs-order.conf \
                           file://0001-Wait-for-FunctionFS-FFS_ACTIVE-before-configfs_set_u.patch"
 
 do_install:append:aurora() {
@@ -90,6 +98,9 @@ do_install:append:aurora() {
     install -d ${D}${systemd_unitdir}/system-preset
     install -m 0644 ${UNPACKDIR}/10-aurora-android-tools.preset \
         ${D}${systemd_unitdir}/system-preset/10-aurora-android-tools.preset
+    install -d ${D}${systemd_unitdir}/system/usb-moded.service.d
+    install -m 0644 ${UNPACKDIR}/99-aurora-init-gfs-order.conf \
+        ${D}${systemd_unitdir}/system/usb-moded.service.d/99-aurora-init-gfs-order.conf
     # /etc/usb-moded/aurora-defaults.ini: matched by the static-config glob
     # /etc/usb-moded/*.ini and NOT the legacy delete-on-first-boot path (which
     # only targets /etc/usb-moded/usb-moded.ini).
@@ -115,4 +126,5 @@ do_install:append:aurora() {
 FILES:${PN}:append:aurora = " ${systemd_unitdir}/system/init_gfs.service \
                               ${systemd_unitdir}/system/sysinit.target.wants/init_gfs.service \
                               ${systemd_unitdir}/system/adbd-prepare.service \
-                              ${systemd_unitdir}/system-preset/10-aurora-android-tools.preset"
+                              ${systemd_unitdir}/system-preset/10-aurora-android-tools.preset \
+                              ${systemd_unitdir}/system/usb-moded.service.d/99-aurora-init-gfs-order.conf"
