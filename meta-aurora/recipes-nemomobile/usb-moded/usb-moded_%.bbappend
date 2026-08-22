@@ -70,6 +70,16 @@ FILESEXTRAPATHS:prepend:aurora := "${THISDIR}/usb-moded:"
 #    usb_moded's configfs_init() can run before g1 exists (configfs_probe()
 #    bails out per point 1 above). An explicit After=/Wants= on
 #    init_gfs.service removes that startup race at its source.
+#
+# 10. 0002-Ignore-EAGAIN-on-udev-monitor-receive.patch: a separate, unrelated
+#     race that also lands the gadget in charging_only. usb-moded's udev
+#     monitor read can return EAGAIN (a benign, known race between the
+#     G_IO_IN wakeup and the netlink message actually being available) --
+#     upstream treats that as fatal and tears down + recreates the whole
+#     monitor, which cancels any in-flight delayed cable-state transfer.
+#     Confirmed via targeted logging (added and removed during
+#     investigation) that this is the dominant cause of the intermittent
+#     charging-only-on-boot failure on this hardware.
 SRC_URI:append:aurora = " file://init_gfs \
                           file://init_gfs.service \
                           file://aurora-defaults.ini \
@@ -78,7 +88,8 @@ SRC_URI:append:aurora = " file://init_gfs \
                           file://adbd-prepare.service \
                           file://10-aurora-android-tools.preset \
                           file://99-aurora-init-gfs-order.conf \
-                          file://0001-Wait-for-FunctionFS-FFS_ACTIVE-before-configfs_set_u.patch"
+                          file://0001-Wait-for-FunctionFS-FFS_ACTIVE-before-configfs_set_u.patch \
+                          file://0002-Ignore-EAGAIN-on-udev-monitor-receive.patch"
 
 do_install:append:aurora() {
     install -m 0755 ${UNPACKDIR}/init_gfs ${D}/usr/bin/init_gfs
