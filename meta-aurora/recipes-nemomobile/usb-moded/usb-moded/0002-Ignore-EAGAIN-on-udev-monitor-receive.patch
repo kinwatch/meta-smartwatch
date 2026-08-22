@@ -1,0 +1,53 @@
+From: Kin Watch <watch@kinwatch.dev>
+Date: Sat, 22 Aug 2026 00:00:00 +0000
+Subject: [PATCH] Ignore EAGAIN on udev monitor receive instead of tearing it
+ down
+
+Upstream-Status: Inappropriate [aurora-specific workaround]
+
+umudev_io_input_cb() treated any failed udev_monitor_receive_device()
+call as fatal: it stops watching the fd, which umudev_io_error_cb()
+then reacts to by destroying and recreating the entire udev monitor.
+That teardown cancels any pending delayed cable-state transfer (see
+umudev_cable_state_start_timer()), and on this device it can land the
+gadget in charging_only before the corrected cable state is ever
+applied -- observed via lsusb as idProduct 0x0afe with no adb.
+
+Confirmed via targeted diagnostic logging (added and removed during
+investigation) that the failure is always errno=EAGAIN: the G_IO_IN
+wakeup fired but no message was available by the time the read
+happened. This is a well known benign race in udev/GLib integrations,
+not a sign the monitor is broken -- the fix is to skip the wakeup and
+keep watching, not tear anything down. Only a genuine error (anything
+other than EAGAIN/EWOULDBLOCK) should still trigger the existing
+teardown-and-restart path.
+---
+ src/usb_moded-udev.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+--- a/src/usb_moded-udev.c
++++ b/src/usb_moded-udev.c
+@@ -37,6 +37,7 @@
+ #include "usb_moded-log.h"
+ 
+ #include <libudev.h>
++#include <errno.h>
+ 
+ /* ========================================================================= *
+  * Constants
+@@ -1011,8 +1012,13 @@
+         /* This normally blocks but G_IO_IN indicates that we can read */
+         struct udev_device *dev = udev_monitor_receive_device(umudev_monitor);
+         if( !dev ) {
+-            /* if we get something else something bad happened stop watching to avoid busylooping */
+-            continue_watching = FALSE;
++            /* EAGAIN/EWOULDBLOCK: the G_IO_IN wakeup fired but no message
++             * was available by the time we read -- a known benign race in
++             * udev/GLib integrations, not a sign the monitor is broken.
++             * Anything else is a real error: stop watching to avoid
++             * busylooping. */
++            if( errno != EAGAIN && errno != EWOULDBLOCK )
++                continue_watching = FALSE;
+         }
+         else {
+             const char *syspath   = udev_device_get_syspath(dev);

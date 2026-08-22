@@ -6,7 +6,14 @@
 # rootfs ext4 -- journald silently drops this service's output for reasons
 # we haven't pinned down, and a file in the rootfs's persistent ext4 gives
 # a guaranteed channel pullable from the ramdisk via /loop/...
-exec >/var/log/aurora-lxc-android.log 2>&1
+#
+# Append, don't truncate: a boot that fails before this script finishes is
+# exactly the boot we need the log from, and reading it back requires
+# another successful boot -- which would otherwise overwrite it first.
+# Cap growth so a run of failures doesn't grow this unboundedly.
+LOGFILE=/var/log/aurora-lxc-android.log
+[ "$(wc -c <"$LOGFILE" 2>/dev/null || echo 0)" -gt 262144 ] && : >"$LOGFILE"
+exec >>"$LOGFILE" 2>&1
 
 echo "aurora-lxc-android: =================== boot start ==================="
 date 2>&1 || true
@@ -172,6 +179,26 @@ if [ -f "$PIXELSTATS_RC" ] && ! mountpoint -q "$PIXELSTATS_RC"; then
     fi
 fi
 
+# Drop init.sdw5100.usb.rc's `on charger` action in full -- a second,
+# independent mass_storage trigger; masking only init.qcom.rc's copy left
+# this one live. The whole action goes (not just its two mass_storage lines)
+# because it also fires an unrelated UVC-gadget setprop later in this file.
+#
+# Range end is anchored to the block's real last line, not "next blank
+# line" -- the init.rc format doesn't guarantee blank-line-terminated
+# blocks, so a differently laid out vendor file could silently swallow past
+# this one action.
+SDW_USB_RC="$VENDOR_INIT/hw/init.sdw5100.usb.rc"
+if [ -f "$SDW_USB_RC" ] && ! mountpoint -q "$SDW_USB_RC"; then
+    SDW_USB_RC_OVERLAY=/run/aurora-init.sdw5100.usb.rc
+    sed '/^on charger\r*$/,/^[[:space:]]*setprop sys\.usb\.configfs 1[[:space:]]*\r*$/d' \
+        "$SDW_USB_RC" > "$SDW_USB_RC_OVERLAY"
+    chmod 0644 "$SDW_USB_RC_OVERLAY"
+    if mount --bind "$SDW_USB_RC_OVERLAY" "$SDW_USB_RC"; then
+        echo "aurora-lxc-android: masked charger-trigger mass_storage setprop in init.sdw5100.usb.rc"
+    fi
+fi
+
 # Drop the CDSP and CVP remoteproc boot writes from init.qti.kernel.rc's
 # early-boot action. The Compute-DSP (camera ML / NN / FastRPC compute offload)
 # and CVP (Computer Vision Processor: camera EIS / motion / detection) only
@@ -190,6 +217,22 @@ if [ -f "$QTI_KERNEL_RC" ] && ! mountpoint -q "$QTI_KERNEL_RC"; then
     chmod 0644 "$QTI_KERNEL_RC_OVERLAY"
     if mount --bind "$QTI_KERNEL_RC_OVERLAY" "$QTI_KERNEL_RC"; then
         echo "aurora-lxc-android: masked CDSP/CVP boot writes in init.qti.kernel.rc"
+    fi
+fi
+
+# Drop init.qcom.rc's `on charger: setprop persist.sys.usb.config
+# mass_storage` line -- init.sdw5100.usb.rc reacts to that property by
+# mkdir-ing mass_storage.0 into g1 unconditionally, and this is the only
+# place that ever sets it. `start qcom-post-boot`, on the same trigger, is
+# left untouched -- only the offending setprop line is matched.
+QCOM_RC="$VENDOR_INIT/hw/init.qcom.rc"
+if [ -f "$QCOM_RC" ] && ! mountpoint -q "$QCOM_RC"; then
+    QCOM_RC_OVERLAY=/run/aurora-init.qcom.rc
+    sed '/^[[:space:]]*setprop persist\.sys\.usb\.config mass_storage[[:space:]]*$/d' \
+        "$QCOM_RC" > "$QCOM_RC_OVERLAY"
+    chmod 0644 "$QCOM_RC_OVERLAY"
+    if mount --bind "$QCOM_RC_OVERLAY" "$QCOM_RC"; then
+        echo "aurora-lxc-android: masked charger-trigger mass_storage setprop in init.qcom.rc"
     fi
 fi
 

@@ -55,7 +55,7 @@ over all configs/b.1/ffs.* symlinks; happy to refactor on request.
 +         * the kernel-side instance) and BEFORE configfs_set_udc().
 +         */
 +        const char *ffs_ep1 = "/dev/usb-ffs/adb/ep1";
-+        for( int i = 0; i < 60; ++i ) {
++        for( int i = 0; i < 120; ++i ) {
 +            if( access(ffs_ep1, F_OK) == 0 ) {
 +                log_debug("FunctionFS ready (%s present)", ffs_ep1);
 +                break;
