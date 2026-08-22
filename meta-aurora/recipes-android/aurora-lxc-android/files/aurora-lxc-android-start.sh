@@ -179,13 +179,15 @@ if [ -f "$PIXELSTATS_RC" ] && ! mountpoint -q "$PIXELSTATS_RC"; then
     fi
 fi
 
-# Drop init.sdw5100.usb.rc's own `on charger` action (confirmed root cause,
-# via a persistent kernel-log capture across a run that landed in the
-# mass-storage-only USB gadget). It directly `setprop sys.usb.config
-# mass_storage` + `setprop sys.usb.configfs 1` -- the exact pair that fires
-# this same file's `on property:sys.usb.config=mass_storage &&
-# property:sys.usb.configfs=1` action further down, which symlinks
-# mass_storage.0 into configs/b.1 and activates it. This is a SEPARATE
+# Drop init.sdw5100.usb.rc's own `on charger` action in full (confirmed root
+# cause, via a persistent kernel-log capture across a run that landed in the
+# mass-storage-only USB gadget). Removing the whole action, not just its
+# `setprop sys.usb.config mass_storage` + `setprop sys.usb.configfs 1` pair,
+# is deliberate: the same block also does `setprop
+# vendor.usb.uvc.function.init 1`, which this file's own `on
+# property:vendor.usb.uvc.function.init=1` trigger further down reacts to --
+# so leaving that one setprop in place would still fire a UVC-gadget path
+# that was never part of what got validated on hardware. This is a SEPARATE
 # `on charger` trigger from the one already masked in init.qcom.rc above;
 # masking only that one left this one still live, which is why the earlier
 # fix attempt didn't hold. Whether `charger` fires depends on a
@@ -195,10 +197,20 @@ fi
 # setup, the plain `adb` composition trigger, etc.) is left alone -- an
 # earlier attempt at masking the whole file made boot LESS reliable, most
 # likely because something downstream actually depends on that setup.
+#
+# The range end is anchored to the block's actual last line (its `setprop
+# sys.usb.configfs 1`), not "next blank line": a blank-line end assumes this
+# file's action blocks are blank-line-terminated, which the init.rc language
+# does not require, so a differently laid out vendor file (a firmware bump, a
+# different unit's build) could make that assumption swallow everything up to
+# the next accidental blank line -- silently, with nothing here to notice.
+# Anchoring both ends to real content this action needs can only ever match
+# this one action.
 SDW_USB_RC="$VENDOR_INIT/hw/init.sdw5100.usb.rc"
 if [ -f "$SDW_USB_RC" ] && ! mountpoint -q "$SDW_USB_RC"; then
     SDW_USB_RC_OVERLAY=/run/aurora-init.sdw5100.usb.rc
-    sed '/^on charger\r*$/,/^\r*$/d' "$SDW_USB_RC" > "$SDW_USB_RC_OVERLAY"
+    sed '/^on charger\r*$/,/^[[:space:]]*setprop sys\.usb\.configfs 1[[:space:]]*\r*$/d' \
+        "$SDW_USB_RC" > "$SDW_USB_RC_OVERLAY"
     chmod 0644 "$SDW_USB_RC_OVERLAY"
     if mount --bind "$SDW_USB_RC_OVERLAY" "$SDW_USB_RC"; then
         echo "aurora-lxc-android: masked charger-trigger mass_storage setprop in init.sdw5100.usb.rc"
