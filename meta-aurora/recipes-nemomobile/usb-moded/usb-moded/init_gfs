@@ -10,7 +10,10 @@
 # ffs.adb just makes for a race we cannot win. usb-moded is the sole writer of
 # g1/functions/* and configs/b.1/<links>.
 
-serial="$(cat /proc/cmdline | sed 's/.*androidboot.serialno=//' | sed 's/ .*//')"
+# The bootloader passes the serial in bootconfig on this kernel; the cmdline is the fallback.
+# Parsed field by field: a failed match must yield nothing, never another cmdline token.
+serial="$(sed -n 's/^androidboot\.serialno = "\(.*\)"$/\1/p' /proc/bootconfig 2>/dev/null)"
+[ -n "$serial" ] || serial="$(tr ' ' '\n' < /proc/cmdline | sed -n 's/^androidboot\.serialno=//p')"
 
 # usb-moded reads configfs through /config; mount the kernel's configfs there
 # if not already mounted.
@@ -61,7 +64,7 @@ echo 0x18d1 > /config/usb_gadget/g1/idVendor    # Google
 echo 0xd002 > /config/usb_gadget/g1/idProduct   # adb composite (overwritten per-mode by usb-moded)
 
 mkdir -p /config/usb_gadget/g1/strings/0x409
-echo "$serial" > /config/usb_gadget/g1/strings/0x409/serialnumber
+[ -n "$serial" ] && echo "$serial" > /config/usb_gadget/g1/strings/0x409/serialnumber
 echo AsteroidOS > /config/usb_gadget/g1/strings/0x409/manufacturer
 hostname > /config/usb_gadget/g1/strings/0x409/product
 
