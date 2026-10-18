@@ -179,6 +179,29 @@ if [ -f "$PIXELSTATS_RC" ] && ! mountpoint -q "$PIXELSTATS_RC"; then
     fi
 fi
 
+# thermal-engine's CPU mitigation writes the lowest frequency at every level and never
+# writes the maximum back, so one skin-temperature throttle holds the CPU at its minimum
+# until reboot. Keep AUDIO-CPU-GPU's GPU actions, which apply and release correctly, and
+# drop its CPU ones.
+for conf in thermal-engine.conf thermal-engine-v2.conf; do
+    target="$ROOTFS/vendor/etc/$conf"
+    [ -f "$target" ] || continue
+    mountpoint -q "$target" && continue
+    grep -q '^\[AUDIO-CPU-GPU\]' "$target" || continue
+    overlay="/run/aurora-$conf"
+    sed -e '/^\[AUDIO-CPU-GPU\]/,/^\[/ s/^\(actions *\).*/\1gpu gpu gpu gpu/' \
+        -e '/^\[AUDIO-CPU-GPU\]/,/^\[/ s/^\(action_info *\)[0-9]*+\([0-9]*\) *[0-9]*+\([0-9]*\) *[0-9]*+\([0-9]*\) *[0-9]*+\([0-9]*\)/\1\2 \3 \4 \5/' \
+        "$target" > "$overlay"
+    rule=$(sed -n '/^\[AUDIO-CPU-GPU\]/,/^\[/p' "$overlay")
+    if echo "$rule" | grep -qE 'cpu|[0-9]\+'; then
+        echo "aurora-lxc-android: $conf AUDIO-CPU-GPU not rewritten, CPU throttle left in place" >&2
+        continue
+    fi
+    if mount --bind "$overlay" "$target"; then
+        echo "aurora-lxc-android: $conf AUDIO-CPU-GPU throttles the GPU only"
+    fi
+done
+
 # Drop init.sdw5100.usb.rc's `on charger` action in full -- a second,
 # independent mass_storage trigger; masking only init.qcom.rc's copy left
 # this one live. The whole action goes (not just its two mass_storage lines)
