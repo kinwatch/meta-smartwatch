@@ -179,6 +179,43 @@ if [ -f "$PIXELSTATS_RC" ] && ! mountpoint -q "$PIXELSTATS_RC"; then
     fi
 fi
 
+# thermal-engine's CPU mitigation writes the lowest frequency and never writes the maximum
+# back, so one audio-therm throttle holds the CPU at its minimum until reboot. Its GPU
+# mitigation works, so AUDIO-CPU-GPU keeps only that.
+te_rule_lines() { awk '/^\[/ { in_rule = /^\[AUDIO-CPU-GPU\]/ } in_rule && $1 == "'"$2"'"' "$1"; }
+for conf in thermal-engine.conf thermal-engine-v2.conf; do
+    target="$ROOTFS/vendor/etc/$conf"
+    [ -f "$target" ] || continue
+    mountpoint -q "$target" && continue
+    actions=$(te_rule_lines "$target" actions | awk '{ $1 = ""; print }')
+    [ -n "$actions" ] || continue
+    # The action_info rewrite keeps the second value of each pair, so every level must be cpu0+gpu.
+    if echo "$actions" | tr -s ' \t' '\n' | grep -v '^$' | grep -qvx 'cpu0+gpu'; then
+        echo "aurora-lxc-android: $conf AUDIO-CPU-GPU is not cpu0+gpu at every level, CPU throttle left in place" >&2
+        continue
+    fi
+    overlay="/run/aurora-$conf"
+    if ! awk '
+        /^\[/ { in_rule = /^\[AUDIO-CPU-GPU\]/ }
+        in_rule && $1 == "actions" { gsub(/cpu0\+gpu/, "gpu") }
+        in_rule && $1 == "action_info" { gsub(/[0-9]+\+/, "") }
+        { print }
+    ' "$target" > "$overlay"; then
+        echo "aurora-lxc-android: $conf overlay could not be written, CPU throttle left in place" >&2
+        rm -f "$overlay"
+        continue
+    fi
+    chmod 0644 "$overlay"
+    if te_rule_lines "$overlay" actions | grep -q cpu || te_rule_lines "$overlay" action_info | grep -q '+'; then
+        echo "aurora-lxc-android: $conf AUDIO-CPU-GPU not rewritten, CPU throttle left in place" >&2
+        rm -f "$overlay"
+        continue
+    fi
+    if mount --bind "$overlay" "$target"; then
+        echo "aurora-lxc-android: $conf AUDIO-CPU-GPU throttles the GPU only"
+    fi
+done
+
 # Drop init.sdw5100.usb.rc's `on charger` action in full -- a second,
 # independent mass_storage trigger; masking only init.qcom.rc's copy left
 # this one live. The whole action goes (not just its two mass_storage lines)
