@@ -60,6 +60,10 @@ do_configure:prepend() {
     echo "# CONFIG_LTO_CLANG is not set" >> ${WORKDIR}/defconfig
     echo "CONFIG_LTO_NONE=y" >> ${WORKDIR}/defconfig
     echo "# CONFIG_CFI_CLANG is not set" >> ${WORKDIR}/defconfig
+    # The RTC is read-only (rtc-pm8xxx-read-only.patch), and the kernel's NTP-to-RTC sync
+    # retries a refused write every second for as long as the clock is NTP-synced, raising a
+    # burst of wakeup events each time.
+    echo "# CONFIG_RTC_SYSTOHC is not set" >> ${WORKDIR}/defconfig
     # Keep the SoC/vendor drivers =m; do not fold them into vmlinux. Qualcomm
     # vendor drivers resolve many symbols only at module-load (e.g.
     # qcom_smd_rpm_quickboot has no in-tree definition; a provider .ko supplies
