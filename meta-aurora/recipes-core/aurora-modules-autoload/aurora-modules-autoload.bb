@@ -1,7 +1,7 @@
 SUMMARY = "Auto-load post-rootfs aurora kernel modules + select deep-sleep cpuidle governor"
 DESCRIPTION = "Drops a systemd-modules-load.d config that loads the WLAN, \
-ALSA/ASoC machine + codec, BT slim, and power-management (RPM VDD_MIN) modules \
-shipped on the rootfs by linux-aurora-modules. These cannot live in \
+ALSA/ASoC machine + codec, BT slim and power-management (RPM VDD_MIN) modules \
+shipped on the rootfs by linux-aurora-modules, and the kernel's battery-limit (BCL) drivers. These cannot live in \
 modules.load.aurora because their .ko files are only reachable AFTER pivot_root \
 to the rootfs (the VKB ramdisk holds only the boot-critical modules). Also ships \
 a oneshot that selects the qcom_lpm cpuidle governor, without which the SoC never \
@@ -28,4 +28,4 @@ FILES:${PN} = "${sysconfdir}/modules-load.d/aurora-post-rootfs.conf \
 
 SYSTEMD_SERVICE:${PN} = "aurora-cpuidle-lpm.service"
 
-RDEPENDS:${PN} = "linux-aurora-modules"
+RDEPENDS:${PN} = "linux-aurora-modules kernel-module-bcl-pmic5 kernel-module-bcl-soc"
